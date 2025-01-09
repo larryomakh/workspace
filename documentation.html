@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMK SENDER Documentation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+        }
+        h1 {
+            color: green;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #ddd;
+            overflow-x: auto;
+        }
+        code {
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>OMK SENDER Documentation</h1>
+    <h2>Overview</h2>
+    <p>OMK SENDER is a Python-based application that allows users to send mass emails with options for HTML content, attachments, and proxy support. The application includes a graphical user interface (GUI) built with Tkinter, making it easy to use across different platforms (Windows, macOS, and Linux).</p>
+
+    <h2>Features</h2>
+    <ul>
+        <li>Send emails with HTML content.</li>
+        <li>Include attachments (PDF files).</li>
+        <li>Edit message and recipient files.</li>
+        <li>Use SOCKS5 proxies for sending emails.</li>
+        <li>Rotate proxies based on a specified frequency.</li>
+        <li>Real-time log display for messages being sent.</li>
+        <li>Display stats on failed and sent messages.</li>
+    </ul>
+
+    <h2>File Structure</h2>
+    <ul>
+        <li><code>smtp.txt</code>: Contains SMTP server, port, user, and password.</li>
+        <li><code>message.html</code>: Contains the email message body in HTML format.</li>
+        <li><code>leads.txt</code>: Contains the list of email addresses.</li>
+        <li><code>proxies.txt</code>: Contains the list of SOCKS5 proxies.</li>
+    </ul>
+
+    <h2>File Contents</h2>
+    <h3><code>smtp.txt</code></h3>
+    <pre><code>smtp.gmail.com
+587
+your_email@gmail.com
+your_email_password
+</code></pre>
+
+    <h3><code>message.html</code></h3>
+    <pre><code>&lt;html&gt;
+&lt;head&gt;&lt;/head&gt;
+&lt;body&gt;
+&lt;p&gt;Hello, this is a test message sent via SMTP over an encrypted channel!&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+    <h3><code>leads.txt</code></h3>
+    <pre><code>recipient1@example.com
+recipient2@example.com
+</code></pre>
+
+    <h3><code>proxies.txt</code></h3>
+    <pre><code>127.0.0.1:1080
+127.0.0.2:1080
+</code></pre>
+
+    <h2>Installation</h2>
+    <p><strong>Install Python and Required Libraries:</strong></p>
+    <p>Ensure you have Python installed on your system. Install the required libraries using pip:</p>
+    <pre><code>pip install PySocks</code></pre>
+
+    <h2>Usage</h2>
+    <p><strong>Run the Application:</strong></p>
+    <p>Create a Python script with the provided code and run it:</p>
+    <pre><code>import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from email.utils import formataddr
+import os
+import time
+import socks
+import itertools
+
+class EmailSenderApp:
+    def __init__(self, root):
+        self.root = root
+        root.title("OMK SENDER")
+
+        # Variables
+        self.smtp_config = self.read_smtp_config('smtp.txt')
+        self.message_body = self.read_message_body('message.html')
+        self.recipients = self.read_recipients('leads.txt')
+        self.proxies = self.read_proxies('proxies.txt')
+        self.from_name = "Your Name"
+        self.include_attachment = tk.BooleanVar(value=True)
+        self.use_proxies = tk.BooleanVar(value=False)
+        self.rotation_frequency = tk.IntVar(value=5)  # Default rotation frequency in minutes
+        self.attachment_path = 'attachment.pdf'
+        self.failed_count = 0
+        self.success_count = 0
+        self.proxy_iterator = itertools.cycle(self.proxies)  # Iterator for proxies
+
+        # Configure grid layout
+        root.grid_rowconfigure(0, weight=1)
+        root.grid_columnconfigure(0, weight=1)
+
+        # UI Elements
+        self.create_widgets()
+
+    def create_widgets(self):
+        # Frame for the entire layout
+        frame = tk.Frame(self.root)
+        frame.grid(sticky="nsew")
+
+        # Title
+        title = tk.Label(frame, text="OMK SENDER", font=("Helvetica", 24, "bold"), fg="green")
+        title.grid(row=0, column=0, columnspan=2, pady=10)
+
+        # Message Text Box
+        self.message_text = tk.Text(frame, height=10, width=50)
+        self.message_text.insert(tk.END, self.message_body)
+        self.message_text.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
+
+        # Edit Message File Button
+        edit_message_button = tk.Button(frame, text="Edit Message File", command=self.edit_message_file)
+        edit_message_button.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+
+        # Edit Leads Button
+        edit_leads_button = tk.Button(frame, text="Edit Leads File", command=self.edit_leads_file)
+        edit_leads_button.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+
+        # Attachment Checkbox
+        attachment_checkbox = tk.Checkbutton(frame, text="Include Attachment", variable=self.include_attachment)
+        attachment_checkbox.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
+
+        # Upload Attachment Button
+        upload_attachment_button = tk.Button(frame, text="Upload Attachment", command=self.upload_attachment)
+        upload_attachment_button.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+
+        # Use Proxies Checkbox
+        proxies_checkbox = tk.Checkbutton(frame, text="Use Proxies", variable=self.use_proxies)
+        proxies_checkbox.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+
+        # Rotation Frequency Button
+        rotation_button = tk.Button(frame, text="Set Rotation Frequency (Minutes)", command=self.set_rotation_frequency)
+        rotation_button.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+
+        # Send Button
+        send_button = tk.Button(frame, text="Send Emails", command=self.send_emails)
+        send_button.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
+
+        # Real-time Message Display
+        self.log = tk.Text(frame, height=10, width=50, state=tk.DISABLED)
+        self.log.grid(row=6, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
+
+        # Stats Display
+        self.stats_label = tk.Label(frame, text="Sent: 0, Failed: 0", font=("Helvetica", 12))
+        self.stats_label.grid(row=7, column=0, columnspan=2, pady=5)
+
+    def read_smtp_config(self, file_path):
+        with open(file_path, 'r') as file:
+            lines = file.readlines()
+        return {
+            'smtp_server': lines[0].strip(),
+            'smtp_port': int(lines[1].strip()),
+            'smtp_user': lines[2].strip(),
+            'smtp_password': lines[3].strip()
+        }
+
+    def read_message_body(self, file_path):
+        with open(file_path, 'r') as file:
+            return file.read().strip()
+
+    def read_recipients(self, file_path):
+        with open(file_path, 'r') as file:
+            return [line.strip() for line in file if line.strip()]
+
+    def read_proxies(self, file_path):
+        with open(file_path, 'r') as file:
+            return [line.strip() for line in file if line.strip()]
+
+    def edit_message_file(self):
+        messagebox.showinfo("Edit Message", "Edit the message.html file manually and save changes before sending.")
+
+    def edit_leads_file(self):
+        messagebox.showinfo("Edit Leads", "Edit the leads.txt file manually and save changes before sending.")
+
+    def upload_attachment(self):
+        self.attachment_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+        messagebox.showinfo("Attachment", f"Selected attachment: {self.attachment_path}")
+
+    def set_rotation_frequency(self):
+        frequency = simpledialog.askinteger("Rotation Frequency", "Enter rotation frequency in minutes:", minvalue=1, maxvalue=1440)
+        if frequency:
+            self.rotation_frequency.set(frequency)
+            messagebox.showinfo("Rotation Frequency", f"Rotation frequency set to {frequency} minutes.")
+
+    def log_message(self, message):
+        self.log.config(state=tk.NORMAL)
+        self.log.insert(tk.END, message + "\n")
+        self.log.config(state=tk.DISABLED)
+        self.log.see(tk.END)
+
+    def send_emails(self):
+        self.failed_count = 0
+        self.success_count = 0
+        self.log_message("Starting to send emails...")
+
+        # Create the SMTP client and log in
+        try:
+            server = self.create_smtp_client()
+        except Exception as e:
+            self.log_message(f"Failed to create SMTP client: {e}")
+            return
+
+        # Loop through the recipients and send the email
+        for recipient in self.recipients:
+            msg = MIMEMultipart()
+            msg['From'] = formataddr((self.from_name, self.smtp_config['smtp_user']))
+            msg['To'] = recipient
+            msg['Subject'] = 'Email Notification'
+
+            # Attach the HTML message body
+            msg.attach(MIMEText(self.message_body, 'html'))
+
+            # Attach the file if include_attachment is True
+            if self.include_attachment.get() and os.path.isfile(self.attachment_path):
+                try:
+                    with open(self.attachment_path, 'rb') as attachment_file:
+                        part = MIMEBase('application', 'octet-stream')
+                        part.set_payload(attachment_file.read())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(self.attachment_path)}')
+                        msg.attach(part)
+                except Exception as e:
+                    self.log_message(f"Failed to attach file for {recipient}: {e}")
+                    self.failed_count += 1
+                    self.update_stats()
+                    continue
+
+            try:
+                server.sendmail(self.smtp_config['smtp_user'], recipient, msg.as_string())
+                self.log_message(f"Successfully sent message to {recipient}")
+                self.success_count += 1
+            except Exception as e:
+                self.log_message(f"Failed to send message to {recipient}: {e}")
+                self.failed_count += 1
+
+            self.update_stats()
+
+            # Rotate proxy if enabled and time to rotate
+            if self.use_proxies.get() and time.time() - self.last_proxy_rotation >= self.rotation_frequency.get() * 60:
+                self.log_message("Rotating proxy...")
+                try:
+                    server.quit()
+                    server = self.create_smtp_client()
+                    self.last_proxy_rotation = time.time()
+                except Exception as e:
+                    self.log_message(f"Failed to rotate proxy: {e}")
+                    break
+
+        # Close the SMTP server connection
+        server.quit()
+        self.log_message("Finished sending emails.")
+
+    def create_smtp_client(self):
+        if self.use_proxies.get():
+            proxy = next(self.proxy_iterator)
+            proxy_host, proxy_port = proxy.split(':')
+            socks.set_default_proxy(socks.SOCKS5, proxy_host, int(proxy_port))
+            socks.wrapmodule(smtplib)
+
+        server = smtplib.SMTP(self.smtp_config['smtp_server'], self.smtp_config['smtp_port'])
+        server.starttls()  # Secure the connection with TLS
+        server.login(self.smtp_config['smtp_user'], self.smtp_config['smtp_password'])
+        self.last_proxy_rotation = time.time()
+        return server
+
+    def update_stats(self):
+        self.stats_label.config(text=f"Sent: {self.success_count}, Failed: {self.failed_count}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = EmailSenderApp(root)
+    root.mainloop()
+</code></pre>
+
+    <h2>Explanation</h2>
+    <p>The application uses the Tkinter library for the graphical user interface, making it cross-platform and easy to use. It includes file reading functions for SMTP configuration, message body, recipients, and proxies. The UI elements allow for editing message and leads files, uploading attachments, toggling proxies, and setting rotation frequency. The SMTP client is configured to use SOCKS5 proxies if enabled, and proxies are rotated based on the specified frequency. Emails are sent when the "Send Emails" button is clicked.</p>
+
+    <h2>Steps to Use</h2>
+    <ol>
+        <li><strong>Edit SMTP Configuration:</strong> Update <code>smtp.txt</code> with your SMTP server details.</li>
+        <li><strong>Edit Message Body:</strong> Update <code>message.html</code> with your email content.</li>
+        <li><strong>Edit Recipients:</strong> Update <code>leads.txt</code> with the list of recipient email addresses.</li>
+        <li><strong>Edit Proxies:</strong> Update <code>proxies.txt</code> with the list of SOCKS5 proxies.</li>
+        <li><strong>Run the Application:</strong> Execute the Python script to start the application.</li>
+        <li><strong>Use the Interface:</strong> Use the GUI to edit the message, upload attachments, toggle proxy usage, set rotation frequency, and send emails.</li>
+    </ol>
+
+    <h2>Additional Notes</h2>
+    <p><strong>Security:</strong> Ensure that <code>smtp.txt</code> is stored securely to protect your email credentials.</p>
+    <p><strong>Dependencies:</strong> Ensure all required libraries are installed.</p>
+    <p><strong>Compatibility:</strong> The application is designed to be cross-platform and should work on Windows, macOS, and Linux.</p>
+</body>
+</html>
